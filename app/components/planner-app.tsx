@@ -798,6 +798,83 @@ export function PlannerApp() {
     }));
   }
 
+  async function deleteCourse(courseId: string) {
+    const targetCourse = planner.courses.find((course) => course.id === courseId);
+
+    if (!targetCourse) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete ${targetCourse.name}? Links for this course will be removed, and related activities/reminders will stay in your planner without a course color.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    if (canPersist && supabase) {
+      const { error } = await supabase.from("courses").delete().eq("id", courseId);
+
+      if (error) {
+        setFeedback(error.message);
+        return;
+      }
+    }
+
+    setPlanner((current) => ({
+      ...current,
+      courses: current.courses.filter((course) => course.id !== courseId),
+      courseLinks: current.courseLinks.filter((link) => link.courseId !== courseId),
+      activities: current.activities.map((activity) =>
+        activity.courseId === courseId ? { ...activity, courseId: null } : activity
+      ),
+      reminders: current.reminders.map((reminder) =>
+        reminder.courseId === courseId ? { ...reminder, courseId: null } : reminder
+      )
+    }));
+
+    if (selectedCourseId === courseId) {
+      setSelectedCourseId(null);
+    }
+
+    if (courseFilter === courseId) {
+      setCourseFilter("all");
+    }
+
+    setActiveModal(null);
+    setFeedback(canPersist ? "Course deleted and synced to Supabase." : "Course removed from preview.");
+  }
+
+  async function deleteActivity(activityId: string) {
+    const targetActivity = planner.activities.find((activity) => activity.id === activityId);
+
+    if (!targetActivity) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete activity "${targetActivity.title}"?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    if (canPersist && supabase) {
+      const { error } = await supabase.from("activities").delete().eq("id", activityId);
+
+      if (error) {
+        setFeedback(error.message);
+        return;
+      }
+    }
+
+    setPlanner((current) => ({
+      ...current,
+      activities: current.activities.filter((activity) => activity.id !== activityId)
+    }));
+    setFeedback(canPersist ? "Activity deleted and synced to Supabase." : "Activity removed from preview.");
+  }
+
   async function deleteLink(linkId: string) {
     if (canPersist && supabase) {
       const { error } = await supabase.from("course_links").delete().eq("id", linkId);
@@ -1119,7 +1196,16 @@ export function PlannerApp() {
                                 {course ? ` • ${course.name}` : ""}
                               </p>
                             </div>
-                            <StatusSelect activity={activity} onChange={updateActivityStatus} />
+                            <div className="flex items-center gap-2">
+                              <StatusSelect activity={activity} onChange={updateActivityStatus} />
+                              <button
+                                className="flex h-9 w-9 items-center justify-center rounded-2xl border border-line/70 bg-white text-ink/45 transition hover:text-rose"
+                                onClick={() => void deleteActivity(activity.id)}
+                                type="button"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -1331,6 +1417,73 @@ export function PlannerApp() {
                 })}
               </div>
             </div>
+
+            <div className="mt-5 rounded-[30px] border border-line/60 bg-[linear-gradient(180deg,rgba(255,249,252,1),rgba(255,255,255,1))] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-ink">Month Activity List</h3>
+                  <p className="text-sm text-ink/60">Every activity in this month can be deleted here and syncs to Supabase when logged in.</p>
+                </div>
+                <button
+                  className="inline-flex items-center gap-2 rounded-2xl border border-line/70 bg-white px-3 py-2 text-sm font-semibold text-rose-dark transition hover:border-rose/40"
+                  onClick={() => openActivityModal()}
+                  type="button"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Activity
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {monthActivities.length ? (
+                  monthActivities.map((activity) => {
+                    const course = activity.courseId ? courseById[activity.courseId] : undefined;
+
+                    return (
+                      <div className="rounded-[24px] border border-line/60 bg-white px-4 py-4" key={activity.id}>
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <div className="flex items-center gap-3">
+                              <span
+                                className="h-3 w-3 rounded-full"
+                                style={{ backgroundColor: course?.color ?? "#f75f98" }}
+                              />
+                              <p className="font-semibold text-ink">{activity.title}</p>
+                              <Tag tone="lavender">{activityLabel(activity.kind)}</Tag>
+                            </div>
+                            <p className="mt-2 text-sm text-ink/60">
+                              {formatFriendlyDate(activity.scheduledFor)}
+                              {activity.timeLabel ? ` • ${activity.timeLabel}` : ""}
+                              {course ? ` • ${course.name}` : ""}
+                            </p>
+                            {activity.description && (
+                              <p className="mt-2 text-sm leading-6 text-ink/55">{activity.description}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 self-start">
+                            <StatusSelect activity={activity} onChange={updateActivityStatus} />
+                            <button
+                              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-line/70 bg-shell text-ink/45 transition hover:text-rose"
+                              onClick={() => void deleteActivity(activity.id)}
+                              type="button"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <EmptyState
+                    actionLabel="Add activity"
+                    onAction={() => openActivityModal()}
+                    text="No activities in this month yet. Add one and it will save straight to your planner data."
+                    title="This month is clear"
+                  />
+                )}
+              </div>
+            </div>
           </section>
         </main>
 
@@ -1352,13 +1505,22 @@ export function PlannerApp() {
                 </p>
               </div>
               {selectedCourse && (
-                <button
-                  className="flex h-10 w-10 items-center justify-center rounded-2xl border border-line/70 bg-white text-ink/60 transition hover:border-rose/40 hover:text-rose"
-                  onClick={() => openCourseModal(selectedCourse)}
-                  type="button"
-                >
-                  <PencilLine className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="flex h-10 w-10 items-center justify-center rounded-2xl border border-line/70 bg-white text-ink/60 transition hover:border-rose/40 hover:text-rose"
+                    onClick={() => openCourseModal(selectedCourse)}
+                    type="button"
+                  >
+                    <PencilLine className="h-4 w-4" />
+                  </button>
+                  <button
+                    className="flex h-10 w-10 items-center justify-center rounded-2xl border border-line/70 bg-white text-ink/45 transition hover:border-rose/40 hover:text-rose"
+                    onClick={() => void deleteCourse(selectedCourse.id)}
+                    type="button"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               )}
             </div>
 
@@ -1566,9 +1728,20 @@ export function PlannerApp() {
               value={courseDraft.notes}
             />
           </Field>
-          <button className="w-full rounded-2xl bg-rose px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-dark" type="submit">
-            {courseDraft.id ? "Save Course Changes" : "Add Course"}
-          </button>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            {courseDraft.id && (
+              <button
+                className="w-full rounded-2xl border border-line/70 bg-white px-4 py-3 text-sm font-semibold text-rose-dark transition hover:border-rose/40"
+                onClick={() => void deleteCourse(courseDraft.id!)}
+                type="button"
+              >
+                Delete Course
+              </button>
+            )}
+            <button className="w-full rounded-2xl bg-rose px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-dark" type="submit">
+              {courseDraft.id ? "Save Course Changes" : "Add Course"}
+            </button>
+          </div>
         </form>
       </ModalShell>
 
